@@ -1,0 +1,6 @@
+@ClicBank_HostAddress = http://localhost:5102
+
+GET {{ClicBank_HostAddress}}/api/
+Accept: application/json
+
+###
