@@ -27,6 +27,6 @@ namespace ClicBank.ViewModels
 
     public class  TransacaoHistorico(Transacao transacao) : TransacaoDto(transacao)
     {
-        public DateTime realizada_em = DateTime.Now;
+        public DateTime realizada_em = DateTime.UtcNow;
     }
 }

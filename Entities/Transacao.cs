@@ -25,7 +25,7 @@ namespace ClicBank.Entities
             Valor = transacao.valor;
             Tipo = transacao.tipo;
             Descricao = transacao.descricao;
-            Data = DateTime.Now;
+            Data = DateTime.UtcNow;
         }
     }
 }
