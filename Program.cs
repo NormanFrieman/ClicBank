@@ -33,6 +33,9 @@ app.MapPost("/clientes/{id}/transacoes", async Task<IResult>(string id, Transaca
     if (String.IsNullOrEmpty(transacaoDto.descricao) || transacaoDto.descricao.Length > 10)
         return Results.UnprocessableEntity();
 
+    if (transacaoDto.tipo != 'c' && transacaoDto.tipo != 'd')
+        return Results.UnprocessableEntity();
+
     return await service.AddTransacao(clienteId, transacaoDto);
 });
 

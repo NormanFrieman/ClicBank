@@ -2,7 +2,9 @@
 using ClicBank.Infra;
 using ClicBank.Interfaces;
 using ClicBank.ViewModels;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using System.Data;
 
 namespace ClicBank.Services
@@ -15,39 +17,49 @@ namespace ClicBank.Services
 
         public async Task<IResult> AddTransacao(int id, TransacaoDto transacaoDto)
         {
-            var conn = _context.Database.GetDbConnection();
+
+            var connString = _context.Database.GetConnectionString();
+            var conn = new NpgsqlConnection(connString);
+
             conn.Open();
-            var tran = conn.BeginTransaction(IsolationLevel.Serializable);
-            _context.Database.UseTransaction(tran);
 
-            var cliente = await _context.Clientes.SingleOrDefaultAsync(x => x.Id == id);
-            if (cliente == null)
-                throw new Exception("Ih rapaz...");
-
-            switch (transacaoDto.tipo)
+            var tran = conn.BeginTransaction(IsolationLevel.ReadCommitted);
+            try
             {
-                case 'c':
-                    cliente.Saldo += transacaoDto.valor;
-                    break;
-                case 'd':
-                    cliente.Saldo -= transacaoDto.valor;
-                    break;
-                default:
+                var cliente = await conn.QuerySingleAsync<Cliente>($@"
+                    update ""Clientes""
+                    set ""Saldo"" =
+	                    (case 
+		                    when '{transacaoDto.tipo}' = 'c'
+			                    then ""Saldo"" + {transacaoDto.valor}
+			                    else ""Saldo"" - {transacaoDto.valor}
+	                    end)
+                    where ""Id"" = {id};
+
+                    select ""Id"", ""Limite"", ""Saldo"" from ""Clientes"" c where ""Id"" = {id};", transaction: tran);
+
+                if (cliente.Saldo + cliente.Limite <= 0)
+                {
+                    tran.Rollback();
+                    conn.Close();
                     return Results.UnprocessableEntity();
+                }
+
+                tran.Commit();
+                conn.Close();
+
+                _context.Transacoes.Add(new Transacao(cliente.Id, transacaoDto));
+                await _context.SaveChangesAsync();
+
+                return Results.Ok(new SaldoResumo(cliente));
             }
+            catch (Exception)
+            {
+                tran.Rollback();
+                conn.Close();
 
-            if (cliente.Saldo + cliente.Limite <= 0)
                 return Results.UnprocessableEntity();
-
-            _context.Clientes.Update(cliente);
-            _context.Transacoes.Add(new Transacao(cliente, transacaoDto));
-
-            await _context.SaveChangesAsync();
-
-            tran.Commit();
-            conn.Close();
-
-            return Results.Ok(new SaldoResumo(cliente));
+            }
         }
 
         public async Task<IResult> GetExtrato(int id)

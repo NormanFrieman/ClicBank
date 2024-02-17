@@ -20,10 +20,9 @@ namespace ClicBank.Entities
 
         public Transacao() { }
 
-        public Transacao(Cliente cliente, TransacaoDto transacao)
+        public Transacao(int clienteId, TransacaoDto transacao)
         {
-            ClienteId = cliente.Id;
-            Cliente = cliente;
+            ClienteId = clienteId;
             Valor = transacao.valor;
             Tipo = transacao.tipo;
             Descricao = transacao.descricao;
