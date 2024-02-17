@@ -1,4 +1,5 @@
 ﻿using ClicBank.Entities;
+using ClicBank.Infra;
 
 namespace ClicBank.Interfaces
 {
@@ -6,5 +7,6 @@ namespace ClicBank.Interfaces
     {
         IQueryable<Cliente> Get();
         Task Update(Cliente cliente);
+        Context GetContext();
     }
 }

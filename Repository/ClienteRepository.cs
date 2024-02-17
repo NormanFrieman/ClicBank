@@ -13,5 +13,7 @@ namespace ClicBank.Repository
         }
 
         public IQueryable<Cliente> Get() => _context.Clientes.AsQueryable();
+
+        public Context GetContext() => _context;
     }
 }

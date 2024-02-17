@@ -25,8 +25,13 @@ namespace ClicBank.ViewModels
         }
     }
 
-    public class  TransacaoHistorico(Transacao transacao) : TransacaoDto(transacao)
+    public class TransacaoHistorico : TransacaoDto
     {
-        public DateTime realizada_em = DateTime.UtcNow;
+        public DateTime realizada_em { get; set; }
+
+        public TransacaoHistorico(Transacao transacao) : base(transacao)
+        {
+            realizada_em = transacao.Data;
+        }
     }
 }

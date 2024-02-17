@@ -3,16 +3,30 @@ using ClicBank.Infra;
 using ClicBank.Interfaces;
 using ClicBank.Repository;
 using ClicBank.ViewModels;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services
     .AddScoped<IClienteRepository, ClienteRepository>()
     .AddScoped<ITransacaoRepository, TransacaoRepository>()
     .AddScoped<ISeed, Seed>()
-    .AddDbContext<Context>(opt => opt.UseInMemoryDatabase("test"));
+    .AddDbContext<Context>(opt =>
+    {
+        opt.UseInMemoryDatabase("test");
+        opt.ConfigureWarnings(x => x.Ignore(InMemoryEventId.TransactionIgnoredWarning));
+    });
 
 var app = builder.Build();
+
+app.UseExceptionHandler(x => x.Run(async context =>
+{
+    var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+    if (exception is not null)
+        context.Response.StatusCode = 422;
+}));
 
 app.MapGet("/api", async (ISeed seed) =>
 {
@@ -20,29 +34,54 @@ app.MapGet("/api", async (ISeed seed) =>
     return "opa bom dia";
 });
 
-app.MapPost("/clientes/{id:int}/transacoes", async Task<IResult>(int id, TransacaoDto transacaoDto, IClienteRepository clienteRepository, ITransacaoRepository transacaoRepository) =>
+app.MapPost("/clientes/{id}/transacoes", async Task<IResult>(string id, TransacaoDto transacaoDto, IClienteRepository clienteRepository, ITransacaoRepository transacaoRepository) =>
 {
-    var cliente = await clienteRepository.Get().SingleOrDefaultAsync(x => x.Id == id);
-    if (cliente == null)
-        return Results.NotFound();
-
-    if ("c".Equals(transacaoDto.tipo))
-        cliente.Limite -= transacaoDto.valor;
-    else
-        cliente.Saldo -= transacaoDto.valor;
-
-    if (cliente.Saldo + cliente.Limite < 0)
+    if (!int.TryParse(id, out int clienteId))
         return Results.UnprocessableEntity();
 
-    await clienteRepository.Update(cliente);
-    await transacaoRepository.Add(new Transacao(cliente, transacaoDto));
+    if (clienteId < 1 || clienteId > 5)
+        return Results.NotFound();
 
+    if (String.IsNullOrEmpty(transacaoDto.descricao) || transacaoDto.descricao.Length > 10)
+        return Results.UnprocessableEntity();
+
+    var context = clienteRepository.GetContext();
+
+    context.Database.BeginTransaction();
+
+    var cliente = await context.Clientes.SingleOrDefaultAsync(x => x.Id == clienteId);
+
+    switch (transacaoDto.tipo)
+    {
+        case 'c':
+            cliente.Saldo += transacaoDto.valor;
+            break;
+        case 'd':
+            cliente.Saldo -= transacaoDto.valor;
+            break;
+        default:
+            return Results.UnprocessableEntity();
+    }
+
+    if (cliente.Saldo + cliente.Limite <= 0)
+        return Results.UnprocessableEntity();
+
+    context.Clientes.Update(cliente);
+    context.Transacoes.Add(new Transacao(cliente, transacaoDto));
+
+    context.Database.CommitTransaction();
+
+    await context.SaveChangesAsync();
+    
     return Results.Ok(new SaldoResumo(cliente));
 });
 
 app.MapGet("clientes/{id}/extrato", async Task<IResult> (int id, IClienteRepository clienteRepository, ITransacaoRepository transacaoRepository) =>
 {
-    var cliente = await clienteRepository.Get().Include(x => x.Transacoes).SingleOrDefaultAsync(x => x.Id == id);
+    var cliente = await clienteRepository
+        .Get()
+        .Include(x => x.Transacoes)
+        .SingleOrDefaultAsync(x => x.Id == id);
     if (cliente == null)
         return Results.NotFound();
 
