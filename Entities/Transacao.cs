@@ -13,6 +13,8 @@ namespace ClicBank.Entities
 
         public int Valor { get; set; }
         public char Tipo { get; set; }
+
+        [MaxLength(10)]
         public string Descricao { get; set; } = null!;
         public DateTime Data { get; set; }
 

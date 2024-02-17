@@ -6,5 +6,6 @@ namespace ClicBank.Interfaces
     {
         Task<IResult> AddTransacao(int id, TransacaoDto transacaoDto);
         Task<IResult> GetExtrato(int id);
+        Task Reset();
     }
 }

@@ -4,17 +4,12 @@ using ClicBank.Services;
 using ClicBank.ViewModels;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
+var connection = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services
     .AddScoped<IClicBankService, ClicBankService>()
-    .AddScoped<ISeed, Seed>()
-    .AddDbContext<Context>(opt =>
-    {
-        opt.UseInMemoryDatabase("test");
-        opt.ConfigureWarnings(x => x.Ignore(InMemoryEventId.TransactionIgnoredWarning));
-    });
+    .AddDbContext<Context>(opt => opt.UseNpgsql(connection));
 
 var app = builder.Build();
 
@@ -25,11 +20,7 @@ app.UseExceptionHandler(x => x.Run(async context =>
         context.Response.StatusCode = 422;
 }));
 
-app.MapGet("/api", async (ISeed seed) =>
-{
-    await seed.IncluirClientes();
-    return "opa bom dia";
-});
+app.MapGet("/helloWorld", () => "Hello World");
 
 app.MapPost("/clientes/{id}/transacoes", async Task<IResult>(string id, TransacaoDto transacaoDto, IClicBankService service) =>
 {
@@ -52,5 +43,7 @@ app.MapGet("clientes/{id}/extrato", async Task<IResult> (int id, IClicBankServic
 
     return await service.GetExtrato(id);
 });
+
+app.MapPut("reset", async Task (IClicBankService service) => await service.Reset());
 
 app.Run();

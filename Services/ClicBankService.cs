@@ -3,6 +3,7 @@ using ClicBank.Infra;
 using ClicBank.Interfaces;
 using ClicBank.ViewModels;
 using Microsoft.EntityFrameworkCore;
+using System.Data;
 
 namespace ClicBank.Services
 {
@@ -14,9 +15,14 @@ namespace ClicBank.Services
 
         public async Task<IResult> AddTransacao(int id, TransacaoDto transacaoDto)
         {
-            _context.Database.BeginTransaction();
+            var conn = _context.Database.GetDbConnection();
+            conn.Open();
+            var tran = conn.BeginTransaction(IsolationLevel.Serializable);
+            _context.Database.UseTransaction(tran);
 
             var cliente = await _context.Clientes.SingleOrDefaultAsync(x => x.Id == id);
+            if (cliente == null)
+                throw new Exception("Ih rapaz...");
 
             switch (transacaoDto.tipo)
             {
@@ -36,9 +42,10 @@ namespace ClicBank.Services
             _context.Clientes.Update(cliente);
             _context.Transacoes.Add(new Transacao(cliente, transacaoDto));
 
-            _context.Database.CommitTransaction();
-
             await _context.SaveChangesAsync();
+
+            tran.Commit();
+            conn.Close();
 
             return Results.Ok(new SaldoResumo(cliente));
         }
@@ -49,8 +56,28 @@ namespace ClicBank.Services
                 .Clientes
                 .Include(x => x.Transacoes)
                 .SingleOrDefaultAsync(x => x.Id == id);
+            if (cliente == null)
+                throw new Exception("Ih rapaz...");
+
 
             return Results.Ok(new ExtratoDto(cliente));
+        }
+
+        public async Task Reset()
+        {
+            await _context.Transacoes.ExecuteDeleteAsync();
+
+            var clientes = await _context.Clientes.ToArrayAsync();
+            var limites = new int[] { 100000, 80000, 1000000, 10000000, 500000 };
+
+            foreach (var (i, cliente) in clientes.OrderBy(x => x.Id).Select((cliente, i) => ( i, cliente )))
+            {
+                cliente.Limite = limites[i];
+                cliente.Saldo = 0;
+
+                _context.Clientes.Update(cliente);
+                await _context.SaveChangesAsync();
+            }
         }
     }
 }
