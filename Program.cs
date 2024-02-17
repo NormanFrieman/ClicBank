@@ -1,17 +1,14 @@
-using ClicBank.Entities;
 using ClicBank.Infra;
 using ClicBank.Interfaces;
-using ClicBank.Repository;
+using ClicBank.Services;
 using ClicBank.ViewModels;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services
-    .AddScoped<IClienteRepository, ClienteRepository>()
-    .AddScoped<ITransacaoRepository, TransacaoRepository>()
+    .AddScoped<IClicBankService, ClicBankService>()
     .AddScoped<ISeed, Seed>()
     .AddDbContext<Context>(opt =>
     {
@@ -34,7 +31,7 @@ app.MapGet("/api", async (ISeed seed) =>
     return "opa bom dia";
 });
 
-app.MapPost("/clientes/{id}/transacoes", async Task<IResult>(string id, TransacaoDto transacaoDto, IClienteRepository clienteRepository, ITransacaoRepository transacaoRepository) =>
+app.MapPost("/clientes/{id}/transacoes", async Task<IResult>(string id, TransacaoDto transacaoDto, IClicBankService service) =>
 {
     if (!int.TryParse(id, out int clienteId))
         return Results.UnprocessableEntity();
@@ -45,47 +42,15 @@ app.MapPost("/clientes/{id}/transacoes", async Task<IResult>(string id, Transaca
     if (String.IsNullOrEmpty(transacaoDto.descricao) || transacaoDto.descricao.Length > 10)
         return Results.UnprocessableEntity();
 
-    var context = clienteRepository.GetContext();
-
-    context.Database.BeginTransaction();
-
-    var cliente = await context.Clientes.SingleOrDefaultAsync(x => x.Id == clienteId);
-
-    switch (transacaoDto.tipo)
-    {
-        case 'c':
-            cliente.Saldo += transacaoDto.valor;
-            break;
-        case 'd':
-            cliente.Saldo -= transacaoDto.valor;
-            break;
-        default:
-            return Results.UnprocessableEntity();
-    }
-
-    if (cliente.Saldo + cliente.Limite <= 0)
-        return Results.UnprocessableEntity();
-
-    context.Clientes.Update(cliente);
-    context.Transacoes.Add(new Transacao(cliente, transacaoDto));
-
-    context.Database.CommitTransaction();
-
-    await context.SaveChangesAsync();
-    
-    return Results.Ok(new SaldoResumo(cliente));
+    return await service.AddTransacao(clienteId, transacaoDto);
 });
 
-app.MapGet("clientes/{id}/extrato", async Task<IResult> (int id, IClienteRepository clienteRepository, ITransacaoRepository transacaoRepository) =>
+app.MapGet("clientes/{id}/extrato", async Task<IResult> (int id, IClicBankService service) =>
 {
-    var cliente = await clienteRepository
-        .Get()
-        .Include(x => x.Transacoes)
-        .SingleOrDefaultAsync(x => x.Id == id);
-    if (cliente == null)
+    if (id < 1 || id > 5)
         return Results.NotFound();
 
-    return Results.Ok(new ExtratoDto(cliente));
+    return await service.GetExtrato(id);
 });
 
 app.Run();
