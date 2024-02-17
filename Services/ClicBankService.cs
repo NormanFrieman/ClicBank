@@ -17,7 +17,6 @@ namespace ClicBank.Services
 
         public async Task<IResult> AddTransacao(int id, TransacaoDto transacaoDto)
         {
-
             var connString = _context.Database.GetConnectionString();
             var conn = new NpgsqlConnection(connString);
 
@@ -58,7 +57,7 @@ namespace ClicBank.Services
                 tran.Rollback();
                 conn.Close();
 
-                return Results.UnprocessableEntity();
+                throw;
             }
         }
 
@@ -70,7 +69,6 @@ namespace ClicBank.Services
                 .SingleOrDefaultAsync(x => x.Id == id);
             if (cliente == null)
                 throw new Exception("Ih rapaz...");
-
 
             return Results.Ok(new ExtratoDto(cliente));
         }
