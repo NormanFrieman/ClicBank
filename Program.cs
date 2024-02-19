@@ -1,3 +1,4 @@
+using ClicBank.Entities;
 using ClicBank.Infra;
 using ClicBank.Interfaces;
 using ClicBank.Services;
@@ -13,13 +14,6 @@ builder.Services
 
 var app = builder.Build();
 
-app.UseExceptionHandler(x => x.Run(async context =>
-{
-    var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
-    if (exception is not null)
-        context.Response.StatusCode = 422;
-}));
-
 app.MapGet("/helloWorld", () => "Hello World");
 
 app.MapPost("/clientes/{id}/transacoes", async Task<IResult>(string id, TransacaoDto transacaoDto, IClicBankService service) =>
@@ -27,16 +21,19 @@ app.MapPost("/clientes/{id}/transacoes", async Task<IResult>(string id, Transaca
     if (!int.TryParse(id, out int clienteId))
         return Results.UnprocessableEntity();
 
+    if (!int.TryParse(transacaoDto.valor.ToString(), out int valor))
+        return Results.UnprocessableEntity();
+
     if (clienteId < 1 || clienteId > 5)
         return Results.NotFound();
 
-    if (String.IsNullOrEmpty(transacaoDto.descricao) || transacaoDto.descricao.Length > 10)
-        return Results.UnprocessableEntity();
+     if (String.IsNullOrEmpty(transacaoDto.descricao) || transacaoDto.descricao.Length > 10)
+         return Results.UnprocessableEntity();
 
-    if (transacaoDto.tipo != 'c' && transacaoDto.tipo != 'd')
-        return Results.UnprocessableEntity();
+     if (transacaoDto.tipo != 'c' && transacaoDto.tipo != 'd')
+         return Results.UnprocessableEntity();
 
-    return await service.AddTransacao(clienteId, transacaoDto);
+     return await service.AddTransacao(clienteId, new Transacao(clienteId, valor, transacaoDto.tipo, transacaoDto.descricao));
 });
 
 app.MapGet("clientes/{id}/extrato", async Task<IResult> (int id, IClicBankService service) =>

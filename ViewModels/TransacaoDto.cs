@@ -5,12 +5,12 @@ namespace ClicBank.ViewModels
 {
     public class TransacaoDto
     {
-        public int valor { get; set; }
+        public object valor { get; set; }
         public char tipo { get; set; }
         public string descricao { get; set; }
 
         [JsonConstructor]
-        public TransacaoDto(int valor, char tipo, string descricao)
+        public TransacaoDto(object valor, char tipo, string descricao)
         {
             this.valor = valor;
             this.tipo = tipo;
