@@ -15,60 +15,73 @@ namespace ClicBank.Services
         public ClicBankService(Context context) =>
             _context = context;
 
-        public async Task<IResult> AddTransacao(int id, TransacaoDto transacaoDto)
+        public async Task<IResult> AddTransacao(int id, Transacao transacao)
         {
             var connString = _context.Database.GetConnectionString();
-            var conn = new NpgsqlConnection(connString);
-
+            using var conn = new NpgsqlConnection(connString);
             conn.Open();
 
             var tran = conn.BeginTransaction(IsolationLevel.ReadCommitted);
             try
             {
-                var cliente = await conn.QuerySingleAsync<Cliente>($@"
+                var updateQuery = $@"
                     update ""Clientes""
                     set ""Saldo"" =
-	                    (case 
-		                    when '{transacaoDto.tipo}' = 'c'
-			                    then ""Saldo"" + {transacaoDto.valor}
-			                    else ""Saldo"" - {transacaoDto.valor}
-	                    end)
-                    where ""Id"" = {id};
+                        (case 
+                            when 'd' = '{transacao.Tipo}'
+                                then ""Saldo"" - {transacao.Valor}
+                                else ""Saldo"" + {transacao.Valor}
+                        end)
+                    where
+	                    ""Id"" = {id}
+	                    and case 
+		                    when 'd' = '{transacao.Tipo}'
+			                    then (""Saldo"" - {transacao.Valor} + ""Limite"") >= 0
+			                    else true
+		                    end;";
+                var selectQuery = $@"
+                    select ""Id"", ""Limite"", ""Saldo"" from ""Clientes"" c where ""Id"" = {id};";
+                var insertQuery = $@"
+                    insert into public.""Transacoes""
+                    (""Id"", ""ClienteId"", ""Valor"", ""Tipo"", ""Descricao"", ""Data"")
+                    values(gen_random_uuid(), {id}, {transacao.Valor}, '{transacao.Tipo}', '{transacao.Descricao}', now());";
 
-                    select ""Id"", ""Limite"", ""Saldo"" from ""Clientes"" c where ""Id"" = {id};", transaction: tran);
-
-                if (cliente.Saldo + cliente.Limite <= 0)
-                {
-                    tran.Rollback();
-                    conn.Close();
+                var rows = await conn.ExecuteAsync(updateQuery, transaction: tran);
+                if (rows == 0)
                     return Results.UnprocessableEntity();
-                }
 
+                var cliente = await conn.QuerySingleAsync<Cliente>(insertQuery + selectQuery, transaction: tran);
                 tran.Commit();
-                conn.Close();
-
-                _context.Transacoes.Add(new Transacao(cliente.Id, transacaoDto));
-                await _context.SaveChangesAsync();
 
                 return Results.Ok(new SaldoResumo(cliente));
             }
             catch (Exception)
             {
                 tran.Rollback();
-                conn.Close();
-
                 throw;
             }
         }
 
         public async Task<IResult> GetExtrato(int id)
         {
-            var cliente = await _context
-                .Clientes
-                .Include(x => x.Transacoes)
-                .SingleOrDefaultAsync(x => x.Id == id);
-            if (cliente == null)
-                throw new Exception("Ih rapaz...");
+            var connString = _context.Database.GetConnectionString();
+            using var conn = new NpgsqlConnection(connString);
+            var sql = $@"
+                    select
+	                    c.""Id"", c.""Limite"", c.""Saldo""
+                    from ""Clientes"" c
+                    where c.""Id"" = {id};
+
+                    select
+                        t.""Valor"", t.""Tipo"", t.""Descricao"", t.""Data"" from ""Transacoes"" t
+                    where t.""ClienteId"" = {id}
+                    order by t.""Data"" desc
+                    limit 10;";
+
+            var res = await conn.QueryMultipleAsync(sql);
+            var cliente = await res.ReadSingleAsync<Cliente>();
+            var transacoes = (await res.ReadAsync<Transacao>()).ToList();
+            cliente.Transacoes = transacoes;
 
             return Results.Ok(new ExtratoDto(cliente));
         }

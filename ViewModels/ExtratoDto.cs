@@ -6,9 +6,7 @@ namespace ClicBank.ViewModels
     {
         public SaldoDto saldo { get; set; } = new SaldoDto(cliente);
         public IEnumerable<TransacaoHistorico> ultimas_transacoes { get; set; } = cliente.Transacoes
-            .Select(transacao => new TransacaoHistorico(transacao))
-            .OrderByDescending(x => x.realizada_em)
-            .Take(10);
+            .Select(transacao => new TransacaoHistorico(transacao));
     }
 
     public class SaldoDto(Cliente cliente)
