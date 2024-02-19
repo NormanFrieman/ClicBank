@@ -1,8 +1,6 @@
 # Rinha de Backend 2024-Q1
 
-## Ezequiel Demetras
-
-Tecnologias:
+## Tecnologias:
 
 * .NET 8
 * Postgresql 
