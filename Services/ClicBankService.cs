@@ -21,45 +21,12 @@ namespace ClicBank.Services
             using var conn = new NpgsqlConnection(connString);
             conn.Open();
 
-            var tran = conn.BeginTransaction(IsolationLevel.ReadCommitted);
-            try
-            {
-                var updateQuery = $@"
-                    update ""Clientes""
-                    set ""Saldo"" =
-                        (case 
-                            when 'd' = '{transacao.Tipo}'
-                                then ""Saldo"" - {transacao.Valor}
-                                else ""Saldo"" + {transacao.Valor}
-                        end)
-                    where
-	                    ""Id"" = {id}
-	                    and case 
-		                    when 'd' = '{transacao.Tipo}'
-			                    then (""Saldo"" - {transacao.Valor} + ""Limite"") >= 0
-			                    else true
-		                    end;";
-                var selectQuery = $@"
-                    select ""Id"", ""Limite"", ""Saldo"" from ""Clientes"" c where ""Id"" = {id};";
-                var insertQuery = $@"
-                    insert into public.""Transacoes""
-                    (""Id"", ""ClienteId"", ""Valor"", ""Tipo"", ""Descricao"", ""Data"")
-                    values(gen_random_uuid(), {id}, {transacao.Valor}, '{transacao.Tipo}', '{transacao.Descricao}', now());";
+            var sql = $"select \"id\", \"limite\", \"saldo\" from atualiza_saldo({id}, {transacao.Valor}, '{transacao.Tipo}', '{transacao.Descricao}');";
+            var cliente = await conn.QuerySingleAsync<Cliente>(sql);
+            if (cliente.Id == 0)
+                return Results.UnprocessableEntity();
 
-                var rows = await conn.ExecuteAsync(updateQuery, transaction: tran);
-                if (rows == 0)
-                    return Results.UnprocessableEntity();
-
-                var cliente = await conn.QuerySingleAsync<Cliente>(insertQuery + selectQuery, transaction: tran);
-                tran.Commit();
-
-                return Results.Ok(new SaldoResumo(cliente));
-            }
-            catch (Exception)
-            {
-                tran.Rollback();
-                throw;
-            }
+            return Results.Ok(new SaldoResumo(cliente));
         }
 
         public async Task<IResult> GetExtrato(int id)
@@ -67,16 +34,16 @@ namespace ClicBank.Services
             var connString = _context.Database.GetConnectionString();
             using var conn = new NpgsqlConnection(connString);
             var sql = $@"
-                    select
-	                    c.""Id"", c.""Limite"", c.""Saldo""
-                    from ""Clientes"" c
-                    where c.""Id"" = {id};
+                select
+	                c.""Id"", c.""Limite"", c.""Saldo""
+                from ""Clientes"" c
+                where c.""Id"" = {id};
 
-                    select
-                        t.""Valor"", t.""Tipo"", t.""Descricao"", t.""Data"" from ""Transacoes"" t
-                    where t.""ClienteId"" = {id}
-                    order by t.""Data"" desc
-                    limit 10;";
+                select
+                    t.""Valor"", t.""Tipo"", t.""Descricao"", t.""Data"" from ""Transacoes"" t
+                where t.""ClienteId"" = {id}
+                order by t.""Data"" desc
+                limit 10;";
 
             var res = await conn.QueryMultipleAsync(sql);
             var cliente = await res.ReadSingleAsync<Cliente>();
