@@ -1,73 +1,92 @@
-﻿using ClicBank.Entities;
-using ClicBank.Infra;
-using ClicBank.Interfaces;
-using ClicBank.ViewModels;
+﻿using ClicBank.ViewModels;
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using System.Data;
 
 namespace ClicBank.Services
 {
-    public class ClicBankService : IClicBankService
+    public static class ClicBankService
     {
-        private readonly Context _context;
-        public ClicBankService(Context context) =>
-            _context = context;
-
-        public async Task<IResult> AddTransacao(int id, Transacao transacao)
+        private readonly static Dictionary<int, int> _limites = new()
         {
-            var connString = _context.Database.GetConnectionString();
-            using var conn = new NpgsqlConnection(connString);
+            { 1, 100000 },
+            { 2, 80000 },
+            { 3, 1000000 },
+            { 4, 10000000 },
+            { 5, 500000 }
+        };
+
+        public static async Task<IResult> AddTransacao(int id, int valor, char tipo, string descricao, string connStr)
+        {
+            using var conn = new NpgsqlConnection(connStr);
             conn.Open();
 
-            var sql = $"select \"id\", \"limite\", \"saldo\" from atualiza_saldo({id}, {transacao.Valor}, '{transacao.Tipo}', '{transacao.Descricao}');";
-            var cliente = await conn.QuerySingleAsync<Cliente>(sql);
-            if (cliente.Id == 0)
+            var dataReader = await conn.ExecuteReaderAsync(_sqlAtualizaSaldo, new { id, valor, tipo, descricao });
+            await dataReader.ReadAsync();
+
+            if (dataReader.GetBoolean(1))
                 return Results.UnprocessableEntity();
 
-            return Results.Ok(new SaldoResumo(cliente));
+            var saldo = dataReader.GetInt32(0);
+
+            _limites.TryGetValue(id, out int limite);
+            return Results.Ok(new SaldoResumo(saldo, limite));
         }
 
-        public async Task<IResult> GetExtrato(int id)
+        public static async Task<IResult> GetExtrato(int id, string connStr)
         {
-            var connString = _context.Database.GetConnectionString();
-            using var conn = new NpgsqlConnection(connString);
-            var sql = $@"
-                select
-	                c.""Id"", c.""Limite"", c.""Saldo""
-                from ""Clientes"" c
-                where c.""Id"" = {id};
+            using var conn = new NpgsqlConnection(connStr);
+            conn.Open();
+            
+            
 
-                select
-                    t.""Valor"", t.""Tipo"", t.""Descricao"", t.""Data"" from ""Transacoes"" t
-                where t.""ClienteId"" = {id}
-                order by t.""Data"" desc
-                limit 10;";
+            var res = await conn.QueryMultipleAsync(_sqlExtrato, new { id });
+            var saldo = await res.ReadSingleAsync<int>();
+            var transacoes = (await res.ReadAsync<(int, char, string, DateTime)>())
+                .Select(x => new TransacaoHistorico(x.Item1, x.Item2, x.Item3, x.Item4));
 
-            var res = await conn.QueryMultipleAsync(sql);
-            var cliente = await res.ReadSingleAsync<Cliente>();
-            var transacoes = (await res.ReadAsync<Transacao>()).ToList();
-            cliente.Transacoes = transacoes;
+            
 
-            return Results.Ok(new ExtratoDto(cliente));
+            _limites.TryGetValue(id, out int limite);
+            var saldoDto = new SaldoDto() { limite = limite, total = saldo };
+            return Results.Ok(new ExtratoDto(saldoDto, transacoes));
         }
 
-        public async Task Reset()
+        public static async Task Reset(string connStr)
         {
-            await _context.Transacoes.ExecuteDeleteAsync();
+            using var conn = new NpgsqlConnection(connStr);
+            conn.Open();
 
-            var clientes = await _context.Clientes.ToArrayAsync();
-            var limites = new int[] { 100000, 80000, 1000000, 10000000, 500000 };
-
-            foreach (var (i, cliente) in clientes.OrderBy(x => x.Id).Select((cliente, i) => ( i, cliente )))
-            {
-                cliente.Limite = limites[i];
-                cliente.Saldo = 0;
-
-                _context.Clientes.Update(cliente);
-                await _context.SaveChangesAsync();
-            }
+            await conn.ExecuteAsync(_sqlReset);
         }
+
+        #region Scripts
+        private static readonly string _sqlReset = @"
+            DELETE FROM public.""Transacoes"";
+            DELETE FROM public.""Clientes"";
+            
+            INSERT INTO public.""Clientes"" (""Id"", ""Limite"", ""Saldo"")
+            VALUES
+                (1, 100000, 0),
+                (2, 80000, 0),
+                (3, 1000000, 0),
+                (4, 10000000, 0),
+                (5, 500000, 0);";
+
+        private static readonly string _sqlAtualizaSaldo = @"
+            SELECT ""saldo"", ""erro"" FROM atualiza_saldo(@id, @valor, @tipo, @descricao);";
+
+        private static readonly string _sqlExtrato = @"
+            SELECT
+	            c.""Saldo""
+            FROM ""Clientes"" c
+            WHERE c.""Id"" = @id;
+
+            SELECT
+                t.""Valor"", t.""Tipo"", t.""Descricao"", t.""Data"" FROM ""Transacoes"" t
+            WHERE t.""ClienteId"" = @id
+            ORDER BY t.""Data"" desc
+            LIMIT 10;";
+        #endregion
     }
 }
