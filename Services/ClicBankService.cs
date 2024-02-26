@@ -2,6 +2,7 @@
 using Dapper;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using System.Data;
 
 namespace ClicBank.Services
 {
@@ -37,15 +38,11 @@ namespace ClicBank.Services
         {
             using var conn = new NpgsqlConnection(connStr);
             conn.Open();
-            
-            
 
             var res = await conn.QueryMultipleAsync(_sqlExtrato, new { id });
             var saldo = await res.ReadSingleAsync<int>();
             var transacoes = (await res.ReadAsync<(int, char, string, DateTime)>())
                 .Select(x => new TransacaoHistorico(x.Item1, x.Item2, x.Item3, x.Item4));
-
-            
 
             _limites.TryGetValue(id, out int limite);
             var saldoDto = new SaldoDto() { limite = limite, total = saldo };
